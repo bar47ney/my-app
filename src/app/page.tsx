@@ -1,11 +1,9 @@
 "use client";
 
 import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
-import { VideoIcon } from "lucide-react";
-import { use, useEffect, useRef, useState } from "react";
-// import VideoThumbnail; // use npm published version
-
+import { fetchFile } from "@ffmpeg/util";
+import { VideoIcon, LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 interface VideoPlayerState {
   isPlaying: boolean;
@@ -78,17 +76,22 @@ const RangeSlider = ({ min, max, step, value, onChange }: RangeSliderProps) => {
       className="relative h-12 bg-gray-700 rounded-lg cursor-pointer"
     >
       <div
-        className="absolute h-full bg-red-700 rounded-lg"
-        style={{ left: `${leftPos}%`, right: `${100 - rightPos}%` }}
+        className="absolute h-full bg-gray-900 rounded-lg"
+        style={{
+          left: `${leftPos}%`,
+          right: `${100 - rightPos}%`,
+          zIndex: 15,
+          opacity: 0.5,
+        }}
       />
       <div
-        className="absolute bg-white h-12 w-4 rounded-sm shadow cursor-grab active:cursor-grabbing"
-        style={{ left: `${leftPos}%` }}
+        className="absolute bg-white h-12 w-4 z-10 rounded-sm shadow cursor-grab active:cursor-grabbing"
+        style={{ left: `${leftPos}%`, zIndex: 20 }}
         onMouseDown={(e) => handleMouseDown(e, 0)}
       />
       <div
-        className="absolute bg-white h-12 w-4 -ml-4 rounded-sm shadow cursor-grab active:cursor-grabbing"
-        style={{ left: `${rightPos}%` }}
+        className="absolute bg-white h-12 w-4 -ml-4 z-10 rounded-sm shadow cursor-grab active:cursor-grabbing"
+        style={{ left: `${rightPos}%`, zIndex: 20 }}
         onMouseDown={(e) => handleMouseDown(e, 1)}
       />
     </div>
@@ -99,6 +102,7 @@ export default function Home() {
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState<string | null>(null);
   const [video, setVideo] = useState<File | null>(null);
+  const [isLoading, setIsloading] = useState<Boolean | null>(null);
   const [videoState, setVideoState] = useState<VideoPlayerState>({
     isPlaying: false,
     trimRange: [0, 0],
@@ -106,10 +110,12 @@ export default function Home() {
     currentTime: 0,
   });
   const [videoDuration, setVideoDuration] = useState<number>(0);
+  const [clickedTime, setClickedTime] = useState<number>(0);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
 
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     loadFFmpeg();
@@ -120,24 +126,12 @@ export default function Home() {
       setStatus("loading ffmpeg...");
       setError(null);
 
-      // const baseURL = "https://app.unpkg.com/@ffmpeg/ffmpeg@0.12.15/files/dist/umd";
       const ffmpeg = new FFmpeg();
       ffmpegRef.current = ffmpeg;
 
       ffmpeg.on("log", ({ message }) => {
         console.log(message);
       });
-
-      // await ffmpeg.load({
-      //   coreURL: await toBlobURL(
-      //     `${baseURL}/ffmpeg.js`,
-      //     "text/javascript"
-      //   ),
-      //   wasmURL: await toBlobURL(
-      //     `${baseURL}/ffmpeg-core.wasm`,
-      //     "application/wasm"
-      //   ),
-      // });
 
       await ffmpeg.load();
 
@@ -155,7 +149,7 @@ export default function Home() {
       const url = URL.createObjectURL(file);
       setVideo(file);
       setVideoState({ ...videoState, video: url });
-      // generateThumbnails();
+      generateThumbnails(file);
     }
   };
 
@@ -185,35 +179,49 @@ export default function Home() {
     }
   };
 
-  // const generateThumbnails = async () => {
-  //   try {
-  //     if (!video) return;
+  const generateThumbnails = async (video: File) => {
+    setIsloading(true);
+    try {
+      if (!video) return;
 
-  //     const ffmpeg = ffmpegRef.current;
-  //     if (!ffmpeg) return;
+      const ffmpeg = ffmpegRef.current;
+      if (!ffmpeg) return;
 
-  //     await ffmpeg.load();
-  //     await ffmpeg.writeFile(video.name, await fetchFile(video));
+      await ffmpeg.load();
+      await ffmpeg.writeFile(video.name, await fetchFile(video));
 
-  //     // Извлечение скриншотов (1 кадр в секунду)
-  //     await ffmpeg.exec(["-i", video.name, "-vf", "fps=1", "output%d.png"]);
+      await ffmpeg.exec(["-i", video.name, "-vf", "fps=1", "output%d.png"]);
 
-  //     const thumbnailUrls = [];
-  //     const time = videoRef.current?.duration || 5;
-  //     for (let i = 1; i <= time; i++) {
-  //       const data = (await ffmpeg.readFile(`output${i}.png`)) as Uint8Array;
-  //       const url = URL.createObjectURL(
-  //         new Blob([data], { type: "image/png" })
-  //       );
-  //       thumbnailUrls.push(url);
-  //     }
+      let currentDuration = Math.round(videoRef.current?.duration ?? 0);
 
-  //     setThumbnails(thumbnailUrls);
-  //   } catch (error) {
-  //     console.log(error);
-  //     setError("Failed to thumbnails");
-  //   }
-  // };
+      for (let i = 1; i <= currentDuration; i++) {
+        const data = (await ffmpeg.readFile(`output${i}.png`)) as Uint8Array;
+        const frameUrl = URL.createObjectURL(new Blob([data]));
+        setThumbnails((prev) => [...prev, frameUrl]);
+      }
+    } catch (error) {
+      console.log(error);
+      setError("Failed to thumbnails");
+    }
+    setIsloading(false);
+  };
+
+  const handleTimelineClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const timeline = event.currentTarget;
+    const { clientX } = event.nativeEvent as MouseEvent;
+    const timelineWidth = timeline.clientWidth;
+
+    if (videoRef.current) {
+      const clickedTime = (clientX / timelineWidth) * videoDuration;
+      videoRef.current.currentTime = clickedTime;
+
+      setVideoState((prev) => ({
+        ...prev,
+        currentTime: clickedTime,
+      }));
+      videoRef.current.play();
+    }
+  };
 
   const handleExport = async () => {
     try {
@@ -257,7 +265,7 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen w-full max-w-4xl mx-auto">
+    <div className="h-screen w-full mx-auto">
       <div className="grid grid-rows-[1fr_auto] h-full">
         <div className="bg-gray-900 w-full h-full relative overflow-hidden">
           {videoState.video ? (
@@ -296,48 +304,85 @@ export default function Home() {
             </div>
           )}
         </div>
-        <div className="bg-gray-800 flex flex-col space-y-4 text-white">
-          <div>
-            <button
-              type="button"
-              onClick={handleExport}
-              className="bg-red-400 text-white px-4 py-2 rounded-md"
-            >
-              Export
-            </button>
-          </div>
-          <div className="relative">
-            <RangeSlider
-              min={0}
-              max={videoDuration}
-              step={0.1}
-              value={videoState.trimRange}
-              onChange={handleTrim}
-            />
-            <div>
-              {/* <VideoThumbnail
-                videoUrl="https://dl.dropboxusercontent.com/s/7b21gtvsvicavoh/statue-of-admiral-yi-no-audio.mp4?dl=1"
-                thumbnailHandler={(thumbnail) => console.log(thumbnail)}
-                width={120}
-                height={80}
-              /> */}
-              {/* {thumbnails.map((src, index) => (
-                <img
-                  key={index}
-                  src={src}
-                  alt={`Thumbnail ${index + 1}`}
-                  style={{ width: "100px", margin: "5px" }}
+
+        <div className="bg-gray-800 flex flex-col space-y-4 text-white p-5">
+          {isLoading ? (
+            <LoaderCircle className="animate-spin w-12 h-12 text-blue-500 text-center mx-auto" />
+          ) : (
+            <>
+              <div>
+                {video && (
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    className="bg-red-400 text-white px-4 py-2 rounded-md"
+                  >
+                    Export
+                  </button>
+                )}
+              </div>
+              <div
+                className="relative"
+                onClick={(e) => handleTimelineClick(e)}
+                ref={timelineRef}
+              >
+                <RangeSlider
+                  min={0}
+                  max={videoDuration}
+                  step={0.1}
+                  value={videoState.trimRange}
+                  onChange={handleTrim}
                 />
-              ))} */}
-            </div>
-            <div>
-              <span>start {videoState.trimRange[0]}</span>
-              <span>
-                duration {videoState.trimRange[1] - videoState.trimRange[0]}
-              </span>
-              <span>end {videoState.trimRange[1]}</span>
-            </div>
-          </div>
+                <div
+                  className="relative flex flex-row justify-between z-0"
+                  style={{ top: `-48px` }}
+                >
+                  {thumbnails.map((src, index) => (
+                    <div style={{ width: `calc(${100 / videoDuration}%-5px)` }}>
+                      <img
+                        key={index}
+                        src={src}
+                        alt={`Thumbnail ${index + 1}`}
+                        style={{ maxHeight: `200px` }}
+                        className="h-12 rounded-xs"
+                      />
+                    </div>
+                  ))}
+
+                  <div
+                    style={{
+                      height: "100%",
+                      background: "red",
+                      position: "absolute",
+                      top: 0,
+                      width: `3px`,
+                      left: `${
+                        (videoState.currentTime / videoDuration) * 100
+                      }%`,
+                    }}
+                  />
+                </div>
+
+                <div className="flex flex-row w-full justify-between text-center">
+                  <span>
+                    start <br />
+                    {videoState.trimRange[0].toFixed(2)}{" "}
+                  </span>
+                  <span>
+                    duration <br />
+                    {(
+                      videoState.trimRange[1] - videoState.trimRange[0]
+                    ).toFixed(2)}
+                  </span>
+                  <span>
+                    {" "}
+                    end <br />
+                    {videoState.trimRange[1].toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
