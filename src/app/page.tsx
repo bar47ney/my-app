@@ -102,7 +102,7 @@ export default function Home() {
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState<string | null>(null);
   const [video, setVideo] = useState<File | null>(null);
-  const [isLoading, setIsloading] = useState<Boolean | null>(null);
+  const [isLoading, setIsloading] = useState<boolean | null>(null);
   const [videoState, setVideoState] = useState<VideoPlayerState>({
     isPlaying: false,
     trimRange: [0, 0],
@@ -192,7 +192,7 @@ export default function Home() {
 
       await ffmpeg.exec(["-i", video.name, "-vf", "fps=1", "output%d.png"]);
 
-      let currentDuration = Math.round(videoRef.current?.duration ?? 0);
+      const currentDuration = Math.round(videoRef.current?.duration ?? 0);
 
       for (let i = 1; i <= currentDuration; i++) {
         const data = (await ffmpeg.readFile(`output${i}.png`)) as Uint8Array;
@@ -338,9 +338,11 @@ export default function Home() {
                   style={{ top: `-48px` }}
                 >
                   {thumbnails.map((src, index) => (
-                    <div style={{ width: `calc(${100 / videoDuration}%-5px)` }}>
+                    <div
+                      style={{ width: `calc(${100 / videoDuration}%-5px)` }}
+                      key={index}
+                    >
                       <img
-                        key={index}
                         src={src}
                         alt={`Thumbnail ${index + 1}`}
                         style={{ maxHeight: `200px` }}
